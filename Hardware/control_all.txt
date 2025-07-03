@@ -1,0 +1,1147 @@
+///////////////
+///////////////
+// control.ino
+///////////////
+///////////////
+
+#include "receiver.h"
+
+void setup()
+{
+    Serial.begin(9600);
+
+    log("Booting...");
+
+    radio_setup();
+    all_servo_startup();
+    // all_touch_startup();
+    all_led_startup();
+
+    log("Boot Succesful");
+
+    log("Running");
+}
+
+void loop()
+{
+    get_radio();
+}
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// direction.cpp
+///////////////
+///////////////
+
+#include "direction.h"
+
+// CODE
+
+
+
+void up_legs(int gait_id)
+{   
+    int *gait;
+    if (gait_id==1)
+    {gait = gait_A;}
+    else if (gait_id ==2)
+    {gait = gait_B;} 
+    else
+    {return;}
+
+    int size = side_size;
+
+    int delta[size];
+    fill_array_int(delta,size,femur_delta_angle);
+
+    servo_move_to_touch(gait, size, 2, delta, global_speed, false);
+}
+
+
+void down_legs(int gait_id)
+{   
+    int *gait;
+    if (gait_id==1)
+    {gait = gait_A;}
+    else if (gait_id ==2)
+    {gait = gait_B;} 
+    else
+    {return;}
+
+    int size = side_size;
+
+    int delta[size];
+    fill_array_int(delta,size,-femur_delta_angle);
+    
+    servo_move_to_touch(gait, size, 2, delta, global_speed, false);
+}
+
+bool isInArray(int arr[], int size, int target) {
+
+    for (int i = 0; i < size; i++) {
+        if (arr[i] == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void move_legs(int rotation_type, bool reverse)
+{
+    // rotation type 
+    // 0 -- gA (default), gB (default)
+    // 1 -- gA (inc), gB (dec)
+    // 2 -- gA (dec), gB (dec)
+
+    int *gait;
+    gait = all_legs;
+
+    int size = full_size;
+
+    int delta_angle[size];
+    fill_array_int(delta_angle,size,0);
+
+
+    for (int i=0;i<size;i++)
+    {
+        bool check=isInArray(gait_A,side_size,i);
+        if (reverse)
+        {check=!check;}
+
+        if (rotation_type == 0 )
+        {
+            delta_angle[i] = coxa_default_angle[i]-coxa_current_angle[i];
+            continue;
+        }
+        else if (rotation_type == 2)
+        {check=!check;}
+        
+        if (check)
+        {
+            delta_angle[i] = coxa_delta_angle;
+        }
+        else
+        {
+            delta_angle[i] = -coxa_delta_angle;
+        }
+
+    }
+
+    servo_move_to_touch(gait, size, 1, delta_angle, global_speed, false);
+}
+
+void rotate_legs(int angle, int rotation_type)
+{
+    // rotation type 
+    // 0 -- gA (default), gB (default)
+    // 1 -- gA (inc), gB (dec)
+    // 2 -- gA (dec), gB (dec)
+
+    int *gait;
+    gait = all_legs;
+
+    int size = full_size;
+
+    int end_angle[size];
+    fill_array_int(end_angle,size,0);
+
+
+    for (int i=0;i<size;i++)
+    {
+        bool check=isInArray(side_A,side_size,i);
+
+        if (rotation_type == 0 )
+        {
+            end_angle[i] = coxa_default_angle[i]-coxa_current_angle[i];
+            continue;
+        }
+        else if (rotation_type == 2)
+        {check=!check;}
+        
+        if (check)
+        {
+            end_angle[i] = range_int(angle,coxa_delta_angle,-coxa_delta_angle);
+        }
+        else
+        {
+            end_angle[i] = range_int(-angle,coxa_delta_angle,-coxa_delta_angle);
+        }
+
+    }
+
+    servo_move_to_touch(gait, size, 1, end_angle, global_speed, false);
+}
+
+
+void move_base(bool move, bool reverse)
+{
+    int pos = gait_counter;
+
+    if (pos == 1)
+    {pos = 2;}
+    else if (pos == 2)
+    {pos = 1;}
+
+    up_legs(pos);
+
+    if (move)
+    {move_legs(pos,reverse);}
+    else
+    {move_legs(0,reverse);}
+
+    down_legs(pos);
+
+    if (move)
+    {gait_counter=pos;}
+    else
+    {gait_counter=0;}
+}
+
+void rotate_base(int angle, bool side)
+{
+    angle = stabilize_angle(angle);
+
+    int d1=0;
+    int d2=0;
+
+    if(side)
+    {d1=1;d2=2;}
+    else
+    {d1=2;d2=1;}
+
+    up_legs(d1);
+    rotate_legs(angle,d1);
+    down_legs(d1);
+
+    up_legs(d2);
+    rotate_legs(angle,d2);
+    down_legs(d2);
+}
+
+
+void base_height(int angle)
+{
+    angle = stabilize_angle(angle);
+
+    int *gait;
+    gait = all_legs;
+
+    int size = full_size;
+
+    int delta_angle[size];
+    fill_array_int(delta_angle,size,range_int(angle,femur_delta_angle,-femur_delta_angle));
+
+    servo_move_to_touch(gait, size, 2, delta_angle, global_speed, false);
+
+    reset_default_angles();
+}
+
+void base_yaw(int angle)
+{
+    angle = stabilize_angle(angle);
+
+    int *gait;
+    gait = all_legs;
+
+    int size = full_size;
+
+    int delta_angle[size];
+    fill_array_int(delta_angle,size,range_int(angle,coxa_delta_angle,-coxa_delta_angle));
+
+    servo_move_to_touch(gait, size, 1, delta_angle, global_speed, false);
+
+    reset_default_angles();
+}
+
+void base_roll(int angle, bool side)
+{
+    angle = stabilize_angle(angle);
+
+    int *gait;
+    gait = all_legs;
+
+    int size = full_size;
+
+    int delta_angle[size];
+    fill_array_int(delta_angle,size,0);
+
+
+    for (int i=0;i<size;i++)
+    {
+        bool check=isInArray(side_A,side_size,i);
+
+        if (side)
+        {check=!check;}
+
+        if (check)
+        {
+            delta_angle[i] = range_int(-angle,femur_delta_angle,-femur_delta_angle);
+        }
+        else
+        {
+            delta_angle[i] = range_int(angle,femur_delta_angle,-femur_delta_angle);
+        }
+
+    }
+
+    servo_move_to_touch(gait, size, 2, delta_angle, global_speed, false);
+
+    reset_default_angles();
+}
+
+void base_pitch(int angle, bool side)
+{
+    angle = stabilize_angle(angle);
+    
+    int *gait;
+    gait = all_legs;
+
+    int size = full_size;
+
+    int delta_angle[size];
+    fill_array_int(delta_angle,size,0);
+
+    for (int i=0;i<size;i++)
+    {
+        bool check=isInArray(front_legs,pair_size,i);
+
+        bool is_middle = isInArray(middle_legs,pair_size,i);
+
+        if (side)
+        {check=!check;}
+
+        if ((!is_middle) && check)
+        {
+            delta_angle[i] = range_int(-angle,femur_delta_angle,-femur_delta_angle);
+        }
+        else if (!is_middle)
+        {
+            delta_angle[i] = range_int(angle,femur_delta_angle,-femur_delta_angle);
+        }
+
+    }
+
+    servo_move_to_touch(gait, size, 2, delta_angle, global_speed, false);
+
+    reset_default_angles();
+}
+
+void org_reset()
+{
+    int size=full_size;
+
+    int *gait;
+    gait = all_legs;
+
+    int delta1[size];
+    fill_array_int(delta1,size,0);
+
+    int delta2[size];
+    fill_array_int(delta2,size,0);
+
+    for(int i=0;i<size;i++)
+    {
+        delta1[i]=stabilize_angle(coxa_current_angle[i]-coxa_org_angle[i]);
+        delta2[i]=stabilize_angle(femur_current_angle[i]-femur_org_angle[i]);
+    }
+
+    servo_move_to_touch(gait, size, 1, delta1, global_speed, false);
+    servo_move_to_touch(gait, size, 2, delta2, global_speed, false);
+
+    reset_default_angles();
+}
+
+void default_reset()
+{
+    int size=full_size;
+
+    int *gait;
+    gait = all_legs;
+
+    int delta1[size];
+    fill_array_int(delta1,size,0);
+
+    int delta2[size];
+    fill_array_int(delta2,size,0);
+
+    for(int i=0;i<size;i++)
+    {
+        delta1[i]=stabilize_angle(coxa_current_angle[i]-coxa_default_angle[i]);
+        delta2[i]=stabilize_angle(femur_current_angle[i]-femur_default_angle[i]);
+    }
+
+    servo_move_to_touch(gait, size, 1, delta1, global_speed, false);
+    servo_move_to_touch(gait, size, 2, delta2, global_speed, false);
+
+    reset_default_angles();
+}
+
+void reset_default_angles()
+{
+    int size = full_size;
+
+    for(int i=0;i<size;i++)
+    {
+        coxa_default_angle[i]=coxa_current_angle[i];
+        femur_default_angle[i]=femur_current_angle[i];
+    }
+
+    reset_delta_angles();
+}
+
+void reset_delta_angles()
+{
+    int size = full_size;
+
+    int up = 0;
+    int down = 0;
+
+    int delta[size];
+    fill_array_int(delta,size,0);
+
+
+    for (int i = 0; i< size; i++)
+    {
+        up=coxa_max_angle[i]-coxa_default_angle[i];
+        down=coxa_default_angle[i]-coxa_min_angle[i];
+
+        delta[i]=minimum_int(up,down);
+    }
+
+    int delta_angle=delta[0];
+
+    for(int i=0;i<size;i++)
+    {
+        if (delta[i]<delta_angle)
+        {delta_angle=delta[i];}
+    }
+
+    coxa_delta_angle=delta_angle;
+
+
+    for (int i = 0; i< size; i++)
+    {
+        up=femur_max_angle[i]-femur_default_angle[i];
+        down=femur_default_angle[i]-femur_min_angle[i];
+
+        delta[i]=minimum_int(up,down);
+    }
+
+    delta_angle=delta[0];
+
+    for(int i=0;i<size;i++)
+    {
+        if (delta[i]<delta_angle)
+        {delta_angle=delta[i];}
+    }
+
+    femur_delta_angle=delta_angle;
+} 
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// direction.h
+///////////////
+///////////////
+
+
+#ifndef DIRECTION_H
+#define DIRECTION_H
+
+// HEADER FILE
+
+#include "movement.h"
+
+bool isInArray(int arr[], int size, int target);
+
+void up_legs(int gait_id);
+void down_legs(int gait_id);
+
+void move_legs(int rotation_type, bool reverse);
+void rotate_legs(int delta_angle, int rotation_type);
+
+void move_base(bool stable, bool reverse);
+void rotate_base(int angle, bool side);
+
+void base_height(int angle);
+void base_yaw(int angle);
+void base_roll(int angle, bool side);
+void base_pitch(int angle, bool side);
+
+void org_reset();
+void default_reset();
+
+void reset_default_angles();
+void reset_delta_angles();
+
+
+#endif
+
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// movement.cpp
+///////////////
+///////////////
+
+#include "movement.h"
+
+// CODE
+
+int stabilize_angle(int angle)
+{
+    if (angle>0)
+    {angle=angle%360;}
+    
+    if (angle<0)
+    {angle=-((-angle)%360);}
+
+    if (angle>180)
+    {angle=-(360-angle);}
+
+    if (angle<-180)
+    {angle=(360+angle);}
+
+    if (angle<0 || angle>180)
+    {log("Incorect Angle sent for Stablizing");}
+    // {log("Incorect Angle sent for Stablizing");angle = constrain(angle, 0, 180);}
+
+    return angle;
+}
+
+void servo_setup(Servo &servo_obj, int servo_pin)
+{
+    servo_obj.attach(servo_pin);
+}
+
+void button_setup(int button_pin)
+{
+    // 5V to pin
+
+    pinMode(button_pin, INPUT);
+}
+
+void all_servo_startup()
+{
+    int size=full_size;
+
+    for(int i=0;i<size;i++)
+    {
+        servo_setup(coxa_servo_objects[i],coxa_servo_pin[i]);
+        servo_setup(femur_servo_objects[i],femur_servo_pin[i]);
+    }
+}
+
+void all_touch_startup()
+{
+    int size=full_size;
+
+    for(int i=0;i<size;i++)
+    {
+        button_setup(foot_touch_pin[i]);
+    }
+}
+
+void led_setup(int button_pin)
+{
+
+    pinMode(button_pin, OUTPUT);
+}
+
+void all_led_startup()
+{
+    led_setup(respond_led);
+}
+
+bool check_button(int button_pin)
+{
+    int press = digitalRead(button_pin);
+
+    return press==HIGH;
+}
+
+void individual_servo(int leg_id, int leg_type, int delta, int speed)
+{
+    int leg[1]={leg_id};
+    int delta_angles[1]={delta};
+
+    servo_move_to_touch(leg,1,leg_type,delta_angles,speed,false);
+}
+
+int minimum_int(int a,int b)
+{
+    return (a<b)?a:b;
+}
+
+int maximum_int(int a,int b)
+{
+    return (a>b)?a:b;
+}
+
+int range_int(int a, int max, int min)
+{
+    if (a>max)
+    {a=max;}
+    if (a<min)
+    {a=min;}
+
+    return a;
+}
+
+void servo_move_to_touch(int leg_id[], int size, int leg_type, int delta[], int speed,bool until_touch)
+{
+    // gloabl_speed is in deg/sec
+
+    int delay_value = int(1000 / speed);
+
+    bool done[size];
+    fill_array_bool(done,size,false);
+
+    int step[size];
+    fill_array_int(step,size,0);
+
+    int pos[size];
+    fill_array_int(pos,size,0);
+
+    int end[size];
+    fill_array_int(end,size,0);
+
+    Servo* servo_obj[size];
+
+    for (int i=0;i<size;i++)
+    {   
+        int start_angle=0;
+        int end_angle=0;
+
+        if (leg_type==1)
+        {
+            servo_obj[i] = &coxa_servo_objects[leg_id[i]];
+            start_angle = coxa_current_angle[leg_id[i]];
+            end_angle = start_angle+delta[i];
+            end_angle = range_int(end_angle,coxa_max_angle[leg_id[i]],coxa_min_angle[leg_id[i]]);
+        }
+
+        else if (leg_type==2)
+        {
+            servo_obj[i] = &femur_servo_objects[leg_id[i]];
+            start_angle = femur_current_angle[leg_id[i]];
+            end_angle = start_angle+delta[i];
+            end_angle = range_int(end_angle,femur_max_angle[leg_id[i]],femur_min_angle[leg_id[i]]);
+        }
+
+        pos[i]=stabilize_angle(start_angle);
+        end[i]=stabilize_angle(end_angle);
+
+
+        if (start_angle < end[i])
+        {
+            step[i] = 1;
+        }
+        else if (start_angle > end[i])
+        {
+            step[i] = -1;
+        }
+    }
+
+    bool all_done=false;
+
+    while(!all_done)
+    {
+        
+        for (int i=0;i<size;i++)
+        {   
+            if (until_touch)
+            {
+                if (check_button(foot_touch_pin[leg_id[i]]))
+                {
+                    end[i]=pos[i];
+                }
+            }
+
+            if (pos[i]==end[i])
+            {
+                done[i]=true;
+            }
+            else
+            {
+                pos[i]+=step[i];
+            }
+
+            servo_obj[i]->write(pos[i]);
+        }
+
+        delay(delay_value);
+
+        all_done=true;
+        for (int i=0;i<size;i++)
+        {
+            all_done=all_done && done[i];
+        }
+    }
+
+    for (int i=0;i<size;i++)
+    {
+        if (leg_type==1)
+        {
+            coxa_current_angle[leg_id[i]]=pos[i];
+        }
+
+        else if (leg_type==2)
+        {
+            femur_current_angle[leg_id[i]]=pos[i];
+        }
+    }
+}
+
+
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// movement.h
+///////////////
+///////////////
+
+
+#ifndef MOVEMENT_H
+#define MOVEMENT_H
+
+// HEADER FILE
+
+#include "variable.h"
+
+int stabilize_angle(int angle);
+
+void servo_setup(Servo &servo_obj, int servo_pin);
+void button_setup(int button_pin);
+void led_setup(int button_pin);
+bool check_button(int button_pin);
+
+void all_servo_startup();
+void all_touch_startup();
+void all_led_startup();
+
+int minimum_int(int a,int b);
+int maximum_int(int a,int b);
+int range_int(int a, int max, int min);
+
+void individual_servo(int leg_id, int leg_type, int delta, int speed);
+void servo_move_to_touch(int leg_id[], int size, int leg_type, int delta[], int speed,bool until_touch);
+
+
+#endif
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// receiver.cpp
+///////////////
+///////////////
+
+#include "receiver.h"
+
+// CODE
+
+void radio_setup()
+{
+    radio.begin();
+    radio.openReadingPipe(0, address);
+    radio.setPALevel(RF24_PA_LOW);
+    radio.startListening();
+}
+
+void get_radio()
+{
+
+    if (radio.available())
+    {
+        radio.read(&data_packet, sizeof(data_packet));
+    }
+    
+    int packet_length=25;
+
+    for (int i=0; i<packet_length;i++)
+    {
+        int command = i ;
+        int arguments = data_packet.args[i];
+
+        execute_command(command,arguments);
+    }
+}
+
+void respond(int args)
+{
+    if (args==1)
+    {
+        digitalWrite(respond_led,HIGH);
+        delay(2000);
+        digitalWrite(respond_led,LOW);
+    }
+}
+
+void execute_command(int command,int args)
+{
+    // command and args chart
+    // 0  --> respond         -- true
+    // 1  --> coxa_1_angle    -- angle
+    // 2  --> coxa_2_angle    -- angle
+    // 3  --> coxa_3_angle    -- angle
+    // 4  --> coxa_4_angle    -- angle
+    // 5  --> coxa_5_angle    -- angle
+    // 6  --> coxa_6_angle    -- angle
+    // 7  --> femur_1_angle   -- angle
+    // 8  --> femur_2_angle   -- angle
+    // 9  --> femur_3_angle   -- angle
+    // 10 --> femur_4_angle   -- angle
+    // 11 --> femur_5_angle   -- angle
+    // 12 --> femur_6_angle   -- angle
+    // 13 --> up_leg         -- gait_id
+    // 14 --> down_leg       -- gait_id
+    // 15 --> global_movement -- reverse
+    // 16 --> global_rotate   -- side
+    // 17 --> move_base      -- stable
+    // 18 --> rotate_base    -- angle
+    // 19 --> base_height    -- height
+    // 20 --> base_yaw       -- angle
+    // 21 --> base_roll      -- angle
+    // 22 --> base_pitch     -- angle
+    // 23 --> org_reset      -- true
+    // 24 --> default_reset  -- true
+    
+    switch(command) 
+    {
+        case 0:
+            respond(args);
+            break;
+
+        case 1:
+            individual_servo(0,1,args,global_speed);
+            break;
+        case 2:
+            individual_servo(1,1,args,global_speed);
+            break;
+        case 3:
+            individual_servo(2,1,args,global_speed);
+            break;
+        case 4:
+            individual_servo(3,1,args,global_speed);
+            break;
+        case 5:
+            individual_servo(4,1,args,global_speed);
+            break;
+        case 6:
+            individual_servo(5,1,args,global_speed);
+            break;
+
+        case 7:
+            individual_servo(0,2,args,global_speed);
+            break;
+        case 8:
+            individual_servo(1,2,args,global_speed);
+            break;
+        case 9:
+            individual_servo(2,2,args,global_speed);
+            break;
+        case 10:
+            individual_servo(3,2,args,global_speed);
+            break;
+        case 11:
+            individual_servo(4,2,args,global_speed);
+            break;
+        case 12:
+            individual_servo(5,2,args,global_speed);
+            break;
+
+        case 13:
+            up_legs(args);
+            break;
+        case 14:
+            down_legs(args);
+            break;
+
+        case 15:
+            if (args==0)
+            {global_reverse=false;}
+            if (args==1)
+            {global_reverse=true;}
+            break;
+        case 16:
+            if (args==0)
+            {global_rotate_side=false;}
+            if (args==1)
+            {global_rotate_side=true;}
+            break;
+
+        case 17:
+            if (args==0)
+            {move_base(false,global_reverse);}
+            if (args==1)
+            {move_base(true,global_reverse);}
+            break;
+            
+        case 18:
+            rotate_base(args,global_rotate_side);
+            break;
+
+        case 19:
+            base_height(args);
+            break;
+        case 20:
+            base_yaw(args);
+            break;
+        case 21:
+            base_roll(args,global_rotate_side);
+            break;
+        case 22:
+            base_pitch(args,global_rotate_side);
+            break;
+
+        case 23:
+            if (args==1)
+            {org_reset();}
+            break;
+
+        case 24:
+            if (args==1)
+            {default_reset();}
+            break;
+
+        default:
+            // handle unknown
+            break;
+    }
+
+}
+
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// receiver.h
+///////////////
+///////////////
+
+
+#ifndef RECEIVER_H
+#define RECEIVER_H
+
+// HEADER FILE
+
+#include "direction.h"
+
+void radio_setup();
+void get_radio();
+
+void respond(int args);
+void execute_command(int command,int args);
+
+
+#endif
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// variable.cpp
+///////////////
+///////////////
+
+#include "variable.h"
+
+// CODE
+
+int respond_led=0;
+
+int coxa_servo_pin[6] = {0,0,0,0,0,0};
+
+int coxa_delta_angle= 0 ;
+// maximum plus minus angle 
+
+int coxa_min_angle[6] = {45,45,45,45,45,45};
+int coxa_max_angle[6] = {135,135,135,135,135,135};
+int coxa_org_angle[6] = {90,90,90,90,90,90};
+int coxa_default_angle[6] = {90,90,90,90,90,90};
+int coxa_current_angle[6] = {90,90,90,90,90,90};
+
+int femur_servo_pin[6] = {0,0,0,0,0,0};
+
+int femur_delta_angle = 0;
+// maximum plus minus angle 
+
+int femur_min_angle[6] = {45,45,45,45,45,45};
+int femur_max_angle[6] = {135,135,135,135,135,135};
+int femur_org_angle[6] = {90,90,90,90,90,90};
+int femur_default_angle[6] = {90,90,90,90,90,90};
+int femur_current_angle[6] = {90,90,90,90,90,90};
+
+int foot_touch_pin[6] = {0,0,0,0,0,0};
+
+int global_speed = 100;
+
+bool global_reverse=false;
+bool global_rotate_side=false;
+
+int gait_A[3] = {0,2,4};
+int gait_B[3] = {1,3,5};
+
+int side_A[3] = {0,5,4};
+int side_B[3] = {1,2,3};
+
+int front_legs[2] = {0,1};
+int middle_legs[2] = {2,5};
+int back_legs[2] = {3,4};
+
+int full_size=6;
+int side_size=3;
+int pair_size=2;
+
+int all_legs[6] = {0,1,2,3,4,5};
+
+int gait_counter = 0;
+
+Servo coxa_servo_objects[6];
+Servo femur_servo_objects[6];
+
+// gait 1 --> 1,3,5
+// gait 2 --> 2,4,6
+
+int radio_ce = 0;
+int radio_csn = 0;
+
+const byte address[6] = "12345";
+
+RF24 radio(radio_ce,radio_csn);
+
+DataPacket data_packet;
+
+void log(const char* message) {
+    Serial.print("[LOG] ");
+    Serial.println(message);
+}
+
+void fill_array_int(int arr[], int size, int value) {
+    for (int i = 0; i < size; i++) {
+        arr[i] = value;
+    }
+}
+
+void fill_array_bool(bool arr[], int size, bool value) {
+    for (int i = 0; i < size; i++) {
+        arr[i] = value;
+    }
+}
+
+
+
+/////////////////
+/////////////////
+/////////////////
+
+///////////////
+///////////////
+// variable.h
+///////////////
+///////////////
+
+
+#ifndef VARIABLE_H
+#define VARIABLE_H
+
+// HEADER FILE
+
+#include "Arduino.h"
+#include "stdint.h"
+#include "ESP32Servo.h"
+#include "SPI.h"
+#include "nRF24L01.h"
+#include "RF24.h"
+
+extern int respond_led;
+
+extern int coxa_servo_pin[6];
+
+extern int coxa_delta_angle;
+extern int coxa_min_angle[6];
+extern int coxa_max_angle[6];
+extern int coxa_org_angle[6];
+extern int coxa_default_angle[6];
+extern int coxa_current_angle[6];
+
+extern int femur_servo_pin[6];
+
+extern int femur_delta_angle;
+extern int femur_min_angle[6];
+extern int femur_max_angle[6];
+extern int femur_org_angle[6];
+extern int femur_default_angle[6];
+extern int femur_current_angle[6];
+
+extern int foot_touch_pin[6];
+
+extern int global_speed;
+
+extern bool global_reverse;
+extern bool global_rotate_side;
+
+extern int gait_A[3];
+extern int gait_B[3];
+
+extern int side_A[3];
+extern int side_B[3];
+
+extern int front_legs[2];
+extern int middle_legs[2];
+extern int back_legs[2];
+
+extern int full_size;
+extern int side_size;
+extern int pair_size;
+
+extern int all_legs[6];
+
+extern int gait_counter;
+
+extern Servo coxa_servo_objects[6];
+extern Servo femur_servo_objects[6];
+
+
+extern int radio_ce;
+extern int radio_csn;
+
+extern const byte address[6];
+
+extern RF24 radio;
+
+struct DataPacket {
+    int8_t args[25];
+};
+
+extern DataPacket data_packet;
+
+void log(const char* message);
+
+void fill_array_int(int arr[], int size, int value);
+void fill_array_bool(bool arr[], int size, bool value);
+
+
+#endif
+/////////////////
+/////////////////
+/////////////////
+
